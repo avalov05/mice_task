@@ -19,7 +19,7 @@ MIN_PULSE_WIDTH = 500  # Pulse width in microseconds for minimum position
 MAX_PULSE_WIDTH = 2500  # Pulse width in microseconds for maximum position
 
 # Constants for ADS1115
-ADS1115_CHANNEL = 0  # Channel on the ADS1115 where hall sensor is connected
+ADS1115_CHANNEL = 0  # Channel on the ADS1115 
 
 def angle_to_pulse_width(pi, angle):
     """
@@ -27,7 +27,6 @@ def angle_to_pulse_width(pi, angle):
     
     Args:
         angle: Angle in degrees (0-180, where 0 is leftmost, 90 is center, 180 is rightmost)
-
     """
     # Ensure angle is within valid range
     angle = max(0, min(180, angle))
@@ -40,95 +39,78 @@ def get_disturbance(disturbance_style, current_time):
     """
     Returns the angle that the disturbance should be at given the current time
     """
-
     if disturbance_style == "sin":
         return np.sin(current_time) * MAX_ROTATION + 90
     
-def hall_sensor_to_angle(hall_sensor, calibration_data):
+def calibration(pi, green_sensor, hall_sensor):
     """
-    Converts a hall sensor reading to an angle
+    Calibrates the green sensor using resting position and 90-degree clockwise rotation
     """
+    # First calibrate resting position
+    input("Please leave the lever at its resting position (leftmost) and press Enter...")
     
-    if hall_sensor.value > calibration_data[0] and hall_sensor.value < calibration_data[1]:
-        angle = 30 +  (hall_sensor.value - calibration_data[0]) / (abs(calibration_data[1] - calibration_data[0])/MAX_ROTATION)
-    elif hall_sensor.value > calibration_data[1] and hall_sensor.value < calibration_data[2]:
-        angle = 90 + (hall_sensor.value - calibration_data[1]) / (abs(calibration_data[2] - calibration_data[1])/MAX_ROTATION)
-    else:
-        angle = 90
+    # Take multiple readings at rest position to get a stable value
+    readings = []
+    for i in range(20):
+        readings.append(green_sensor.value)
+        time.sleep(0.05)
+        print(".", end="", flush=True)
 
-    return angle
+    # Remove outliers and average
+    readings.sort()
+    trimmed_readings = readings[5:-5]  # Remove 5 lowest and 5 highest values
+    rest_position = sum(trimmed_readings) / len(trimmed_readings)
+    print(f"\nRecorded rest position: {rest_position:.1f}")
+
+    # Now calibrate 90-degree position
+    input("\nPlease rotate the lever 90 degrees clockwise and press Enter...")
+    
+    readings = []
+    for i in range(20):
+        readings.append(green_sensor.value)
+        time.sleep(0.05)
+        print(".", end="", flush=True)
+
+    readings.sort()
+    trimmed_readings = readings[5:-5]
+    rotated_position = sum(trimmed_readings) / len(trimmed_readings)
+    print(f"\nRecorded 90-degree position: {rotated_position:.1f}")
+
+    # Return calibration points
+    return [rest_position, rotated_position]
 
 def green_sensor_to_angle(green_sensor, calibration_data):
     """
-    Converts a green sensor reading to an angle
+    Converts green sensor reading to angle where:
+    - Rest position (leftmost) = 30 degrees
+    - 90 degrees clockwise = 120 degrees
     """
-    if green_sensor.value > calibration_data[3] and green_sensor.value < calibration_data[4]:
-        angle = 30 +  (green_sensor.value - calibration_data[3]) / (abs(calibration_data[4] - calibration_data[3])/MAX_ROTATION)
-    elif green_sensor.value > calibration_data[4] and green_sensor.value < calibration_data[5]:
-        angle = 90 + (green_sensor.value - calibration_data[4]) / (abs(calibration_data[5] - calibration_data[4])/MAX_ROTATION)
-    else:
-        angle = 90
-
-    return angle
-
-def calibration(pi, hall_sensor, green_sensor):
-
-    #postions to calibrate
-    POSTIONS = ["LEFT", "MIDDLE", "RIGHT"]
-    calibration_data = []
-
-    for position in POSTIONS:
-        input(f"Please move the lever to the {position} position and press Enter...")
-
-        #take 20 readings to get values despite noise
-        readings = []
-        for i in range(20):
-            readings.append(hall_sensor.value)
-            time.sleep(0.05)
-            print(".", end="", flush=True)
-
-        # Remove outliers and average
-        readings.sort()
-        trimmed_readings = readings[5:-5]  # Remove 5 lowest and 5 highest values
-        avg_reading = sum(trimmed_readings) / len(trimmed_readings)
-
-        #append to calibration data
-        calibration_data.append(avg_reading)
-        print(f"\nRecorded {position} position: {avg_reading:.1f}")
-
-    #center spout and take readings rotate servo to its center
-    print("Reading servo sensor at leftmost position...")
-    left_angle = 90 - MAX_ROTATION
-    angle_to_pulse_width(pi, left_angle)
-    time.sleep(2)
-    calibration_data.append(green_sensor.value)
-    print(f"\nRecorded position: {calibration_data[-1]}")
+    rest_value, rotated_value = calibration_data
     
-    print("Reading servo sensor at center position...")
-    center_angle = 90
-    angle_to_pulse_width(pi, center_angle)
-    time.sleep(2)
-    calibration_data.append(green_sensor.value)
-    print(f"\nRecorded position: {calibration_data[-1]}")
+    # Calculate the voltage range for 90 degrees of motion
+    voltage_range = abs(rotated_value - rest_value)
     
-    print("Reading servo sensor at rightmost position...")
-    right_angle = 90 + MAX_ROTATION
-    angle_to_pulse_width(pi, right_angle)
-    time.sleep(2)
-    calibration_data.append(green_sensor.value)
-    print(f"\nRecorded position: {calibration_data[-1]}")
-
+    # Calculate current position relative to rest position
+    relative_position = green_sensor.value - rest_value
     
-    #make sure the sensor is not attached where the values can go from 0 to 25000, aka when its rotating from 0 to 25000 and drops to 0
-    if calibration_data[0] < calibration_data[1] < calibration_data[2]:
-        print("Calibration successful!")
-    elif calibration_data[0] > calibration_data[1] > calibration_data[2]:
-        print("Calibration successful!")
-    else:
-        print("Calibration failed. Please rotate the sensor without rotating the lever and try again.")
-        exit(2)
+    # Convert to angle (30 degrees at rest, 120 degrees at full rotation)
+    angle = 30 + (relative_position / voltage_range) * 90
+    
+    # Clamp the angle between 30 and 120 degrees
+    return max(30, min(120, angle))
 
-    return calibration_data
+def hall_sensor_to_angle(hall_sensor, calibration_data):
+    """
+    Converts hall sensor reading to angle using the same principle as green sensor
+    """
+    rest_value, rotated_value = calibration_data
+    
+    voltage_range = abs(rotated_value - rest_value)
+    relative_position = hall_sensor.value - rest_value
+    
+    angle = 30 + (relative_position / voltage_range) * 90
+    
+    return max(30, min(120, angle))
 
 def send_data(data, ip, port):
     """
@@ -162,10 +144,10 @@ def main():
     ads = ADS.ADS1115(i2c)
     # Set the gain to capture smaller voltage changes
     ads.gain = 2  # Options: 2/3, 1, 2, 4, 8, 16 (higher = more precision for smaller voltages)
-    hall_sensor = AnalogIn(ads, ADS.P0 + ADS1115_CHANNEL)
-    green_sensor = AnalogIn(ads, ADS.P1 + ADS1115_CHANNEL)
+    green_sensor = AnalogIn(ads, ADS.P0 + ADS1115_CHANNEL)
+    hall_sensor = AnalogIn(ads, ADS.P1 + ADS1115_CHANNEL)
     # Calibrate the sensor
-    calibration_data = calibration(pi, hall_sensor, green_sensor)
+    calibration_data = calibration(pi, green_sensor, hall_sensor)
 
     """
     Task Parameters
@@ -178,7 +160,6 @@ def main():
     """
     Task
     """
-
     start_time = time.perf_counter()
     reward_start_time = time.perf_counter()
     in_zone = False  # Track whether we're in the delivery zone
@@ -195,11 +176,11 @@ def main():
         #get disturbance angle
         disturbance_angle = get_disturbance(disturbance_style, current_time)
 
-        #get hall sensor angle
-        hall_sensor_angle = hall_sensor_to_angle(hall_sensor, calibration_data)
+        #get green sensor angle
+        green_sensor_angle = green_sensor_to_angle(green_sensor, calibration_data)
 
         #get angle to move to
-        final_angle = disturbance_angle + (hall_sensor_angle-90)
+        final_angle = disturbance_angle + (green_sensor_angle-90)
 
         angle_to_pulse_width(pi, final_angle)
 
@@ -219,25 +200,21 @@ def main():
             # We're outside the delivery zone
             in_zone = False
 
-        #get green sensor angle
-        green_sensor_angle = green_sensor_to_angle(green_sensor, calibration_data)
+        #get hall sensor angle
+        hall_sensor_angle = hall_sensor_to_angle(hall_sensor, calibration_data)
 
         #save data
         data[current_time] = {
             "disturbance_angle": disturbance_angle,
-            "hall_sensor_angle": hall_sensor_angle,
-            "final_angle": green_sensor_angle,
+            "green_sensor_angle": green_sensor_angle,
+            "final_angle": hall_sensor_angle,
             "in_zone": in_zone
         }
 
-        #send data to laptop
-        
         # Add a small delay to prevent CPU overload
         time.sleep(0.01)
 
     send_data(data, "172.20.10.10", 12345)
 
 if __name__ == "__main__":
-    main()
-
-
+    main() 
