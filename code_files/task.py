@@ -7,6 +7,8 @@ from adafruit_ads1x15.analog_in import AnalogIn #type: ignore
 import numpy as np #type: ignore
 import socket
 import json
+import signal
+import sys
 
 '''
     Constants
@@ -106,6 +108,28 @@ def green_sensor_to_angle(green_sensor, calibration_points):
     
     return max(60, min(120, angle))
 
+def hall_sensor_to_angle(hall_sensor, calibration_points):
+    """
+    Converts hall sensor reading to angle.
+    Resting position = Maximum right
+    Resting position + 20° = Center (90°)
+    Resting position + 40° = Maximum left
+    """
+    current_value = hall_sensor.value
+    resting_value = calibration_points['right']  # This is the resting position (maximum right)
+    
+    # Calculate how far we are from resting position
+    delta = current_value - resting_value
+    
+    # Map the delta to degrees
+    # At resting (delta = 0) we want maximum right (110°)
+    # At resting + 20° we want center (90°)
+    # At resting + 40° we want maximum left (70°)
+    # Linear mapping between these points
+    angle = 110 - (delta / (calibration_points['left'] - resting_value)) * 40
+    
+    return max(70, min(110, angle))
+
 def get_disturbance(disturbance_style, current_time):
     """
     Returns the angle that the disturbance should be at given the current time
@@ -127,7 +151,22 @@ def send_data(data, ip, port):
     except Exception as e:
         print(f"Error sending data: {e}")
 
+def signal_handler(sig, frame):
+    """
+    Handle Ctrl+C by centering the servo before exiting
+    """
+    print("\nCentering servo and exiting...")
+    pi = pigpio.pi()
+    if pi.connected:
+        angle_to_pulse_width(pi, 90)  # Center position
+        time.sleep(0.5)  # Give servo time to move
+        pi.stop()
+    sys.exit(0)
+
 def main():
+    # Set up signal handler for Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Initialize pigpio
     pi = pigpio.pi()
     if not pi.connected:
@@ -137,20 +176,12 @@ def main():
     # Initialize I2C bus and ADS1115
     i2c = busio.I2C(board.SCL, board.SDA)
     ads = ADS.ADS1115(i2c)
-    ads.gain = 2
-    green_sensor = AnalogIn(ads, ADS.P0 + ADS1115_CHANNEL)
-    hall_sensor = AnalogIn(ads, ADS.P1 + ADS1115_CHANNEL)
+    ads.gain = 1  # Changed from 2 to 1 for 5V sensor
+    green_sensor = AnalogIn(ads, ADS.P1 + ADS1115_CHANNEL)
+    hall_sensor = AnalogIn(ads, ADS.P0 + ADS1115_CHANNEL)
     
     # Calibrate the sensors
-    while True:
-        print("green sensor: ", green_sensor.value)
-        print("hall sensor: ", hall_sensor.value)
-        time.sleep(0.1)
-    
     calibration_points = calibration(pi, green_sensor, hall_sensor)
-
-    print("green sensor: ", green_sensor.value)
-    print("hall sensor: ", hall_sensor.value)
 
     """
     Task Parameters
@@ -159,6 +190,7 @@ def main():
     time_for_reward = 1 #seconds
     trial_duration = 20 #seconds
     disturbance_style = "sin"
+    lever_sensitivity = 2
 
     """
     Task
@@ -176,7 +208,16 @@ def main():
 
         disturbance_angle = get_disturbance(disturbance_style, current_time)
         green_sensor_angle = green_sensor_to_angle(green_sensor, calibration_points)
-        final_angle = disturbance_angle + (green_sensor_angle-90)
+        hall_sensor_angle = hall_sensor_to_angle(hall_sensor, calibration_points)
+        
+        # Calculate the correction needed based on hall sensor
+        # If hall sensor is at 90° (center), no correction needed
+        # If hall sensor is > 90°, we need to move servo left to compensate
+        # If hall sensor is < 90°, we need to move servo right to compensate
+        correction = lever_sensitivity * (hall_sensor_angle - 90)
+        
+        # Apply the correction to the final angle
+        final_angle = disturbance_angle - correction
         angle_to_pulse_width(pi, final_angle)
 
         if final_angle >= 90 - delivery_zone and final_angle <= 90 + delivery_zone:
@@ -192,6 +233,7 @@ def main():
         data[current_time] = {
             "disturbance_angle": disturbance_angle,
             "green_sensor_angle": green_sensor_angle,
+            "hall_sensor_angle": hall_sensor_angle,
             "final_angle": final_angle,
             "in_zone": in_zone
         }
