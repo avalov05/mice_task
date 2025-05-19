@@ -1,0 +1,94 @@
+%% Constants
+
+ngraphs = 3;
+
+
+%% Load Data
+folder = 'D147m51';                          
+files = dir(fullfile('../', folder, '*.csv'));         
+filePaths = fullfile({files.folder}, {files.name});    
+
+last_time = 0;
+first = 1;
+
+for k = 1:length(files)
+    table = readtable(filePaths{k});
+    table{:,1} = table{:,1} + last_time;
+    last_time = table{end, 1};
+    if first == 1
+        last_table = table;
+        first = 0;
+    else
+        combined_table = [last_table; table];
+    end
+end
+
+%% Plot Raw
+subplot(ngraphs,1,1)
+plot(combined_table{:,1}, combined_table{:,3});
+%line([edges;edges],[0;1],'linestyle','--','color','r')
+title(folder);
+xlabel('Time, s')
+ylabel('Reward')
+
+%% Plot by Bins
+subplot(ngraphs,1,2)
+bin_size = 1.0;
+start_time = combined_table{1,1};
+end_time = combined_table{end,1};
+edges = start_time:bin_size:end_time;
+
+time = combined_table{:,1};
+reward = combined_table{:,3};
+
+N = histcounts(time(reward == 1), edges);
+
+bar(edges(1:end-1), smoothdata(N, 'gaussian'), 'histc');
+title(folder);
+xlabel('Time, 10s')
+ylabel('Reward')
+
+%% Bout Graph
+
+min_interval = 10; %seconds
+min_letgo_time = 2; %seconds
+
+bout_duration = [];
+bout_num = [];
+bout_count = 1;
+
+break_count = 0;
+hold_count = 0;
+for i = 1:height(combined_table)
+    if combined_table{i,3} == 1
+        hold_count = hold_count + 0.25;
+        break_count = 0;
+    else
+        break_count = break_count + 0.1;
+        if hold_count > 10
+            if break_count > min_letgo_time
+                bout_duration = [bout_duration, hold_count];
+                bout_num = [bout_num, bout_count];
+                bout_count = bout_count + 1;
+                hold_count = 0;
+            end 
+        else
+            if break_count > min_letgo_time
+                hold_count = 0;
+            end
+        end
+    end
+end
+
+bar(bout_num, bout_duration)
+title([folder, "Lever Press Duration"])
+xlabel("Bout num")
+ylabel("Duration, s")
+
+%% Plot Angle
+
+subplot(ngraphs,1,3)
+plot(combined_table{:,2});
+title(folder);
+xlabel('Time, s')
+ylabel('Angle, degrees')

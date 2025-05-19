@@ -202,13 +202,15 @@ def main():
     data = {}
     
     while True:
+
         current_time = time.perf_counter() - start_time
         if current_time > trial_duration:
             break
-
         disturbance_angle = get_disturbance(disturbance_style, current_time)
         green_sensor_angle = green_sensor_to_angle(green_sensor, calibration_points)
-        hall_sensor_angle = hall_sensor_to_angle(hall_sensor, calibration_points)
+        print(f"Green sensor angle: {green_sensor_angle}")
+        """hall_sensor_angle = hall_sensor_to_angle(hall_sensor, calibration_points)
+        print(f"Hall sensor angle: {hall_sensor_angle}")
         
         # Calculate the correction needed based on hall sensor
         # If hall sensor is at 90° (center), no correction needed
@@ -237,7 +239,7 @@ def main():
             "final_angle": final_angle,
             "in_zone": in_zone
         }
-
+"""
         time.sleep(0.01)
 
     send_data(data, "172.20.10.10", 12345)

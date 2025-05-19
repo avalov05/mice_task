@@ -1,0 +1,1 @@
+Time (s)	Servo Angle (degrees)	Lever Angle (degrees)	Disturbance Angle	Final Angle	Reward Delivered (0/1)
