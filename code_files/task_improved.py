@@ -53,11 +53,11 @@ BUFFER_ZONE = 0.0             # Buffer zone for analog input variability (in vol
 # ===== Task Parameters =====
 # Disturbance Configuration
 DISTURBANCE_STYLE = "sin"     # Options: "sin", "none"
-DISTURBANCE_MAGNITUDE = 20    # Amplitude of disturbance in degrees
+DISTURBANCE_MAGNITUDE = 2    # Amplitude of disturbance in GEAR degrees (actual output rotation)
 DISTURBANCE_PERIOD = 10       # Period of disturbance in seconds (time for one complete cycle)
 
 # Reward Configuration
-DELIVERY_ZONE = 10            # Size of reward zone in degrees (±DELIVERY_ZONE around center)
+DELIVERY_ZONE = 1           # Size of reward zone in GEAR degrees (±5° at gear output)
 TIME_FOR_REWARD = 0.5         # Time required in zone to trigger reward (seconds)
 
 # Trial Configuration
@@ -198,10 +198,12 @@ def get_disturbance(disturbance_style, current_time, servo_center=90, magnitude=
     Returns the angle that the disturbance should be at given the current time
 
     The disturbance is centered at servo_center and oscillates based on the provided parameters.
+
+    Note: magnitude is in GEAR degrees and will be converted to servo degrees internally
     """
     # Use default values if not provided
     if magnitude is None:
-        magnitude = MAX_SERVO_ROTATION
+        magnitude = MAX_GEAR_ROTATION
 
     if period is None:
         period = 2 * np.pi  # Default to 2π seconds (1 Hz)
@@ -210,9 +212,12 @@ def get_disturbance(disturbance_style, current_time, servo_center=90, magnitude=
         # Calculate frequency from period (f = 1/T)
         frequency = 1.0 / period
 
-        # This will oscillate between servo_center-magnitude and servo_center+magnitude
+        # Convert magnitude from gear degrees to servo degrees
+        servo_magnitude = magnitude * GEAR_RATIO
+
+        # This will oscillate between servo_center-servo_magnitude and servo_center+servo_magnitude
         # with the specified period
-        return np.sin(2 * np.pi * frequency * current_time) * magnitude + servo_center
+        return np.sin(2 * np.pi * frequency * current_time) * servo_magnitude + servo_center
     elif disturbance_style == "none":
         # No disturbance - return servo_center
         return servo_center
@@ -339,9 +344,8 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
 
     ax1.plot(lever_angles, gear_angles, 'b-', label='Lever-to-Gear Mapping')
 
-    # Add reward zone (converted to gear angles)
-    gear_delivery_zone = delivery_zone / gear_ratio
-    ax1.axhspan(-gear_delivery_zone, gear_delivery_zone,
+    # Add reward zone (already in gear angles)
+    ax1.axhspan(-delivery_zone, delivery_zone,
                alpha=0.2, color='green', label='Reward Zone')
     ax1.text(40, 0, 'Reward Zone', color='green')
 
@@ -368,31 +372,27 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
         for t in time_values:
             # Calculate disturbance using the same formula as in the main code
             frequency = 1.0 / disturbance_period
-            # Show disturbance relative to center (0 is center)
-            servo_disturbance = np.sin(2 * np.pi * frequency * t) * disturbance_magnitude
-            # Convert to gear angle
-            gear_disturbance = servo_disturbance / gear_ratio
+            # Calculate disturbance directly in gear degrees (disturbance_magnitude is already in gear degrees)
+            gear_disturbance = np.sin(2 * np.pi * frequency * t) * disturbance_magnitude
             disturbance_values.append(gear_disturbance)
 
         ax2.plot(time_values, disturbance_values, 'r-', label='Sinusoidal Disturbance')
 
-        # Add reward zone to the middle graph (in gear angles)
-        gear_delivery_zone = delivery_zone / gear_ratio
-        ax2.axhspan(-gear_delivery_zone, gear_delivery_zone,
-                   alpha=0.2, color='green', label='Reward Zone')
+        # Add reward zone to the middle graph (already in gear angles)
+        ax2.axhspan(-delivery_zone, delivery_zone,
+                   alpha=0.2, color='green', label=f'Reward Zone (±{delivery_zone:.1f}°)')
 
         # Add safe range (in gear angles)
         ax2.axhspan(-max_gear_rotation, max_gear_rotation,
                    alpha=0.1, color='blue', label='Safe Range')
 
         ax2.set_xlim(0, disturbance_period * 2)
-        ax2.set_ylim(-disturbance_magnitude/gear_ratio - 1, disturbance_magnitude/gear_ratio + 1)
+        ax2.set_ylim(-disturbance_magnitude - 1, disturbance_magnitude + 1)
         ax2.legend(loc='upper right')
     else:
-        # Add reward zone even for no disturbance (in gear angles)
-        gear_delivery_zone = delivery_zone / gear_ratio
-        ax2.axhspan(-gear_delivery_zone, gear_delivery_zone,
-                   alpha=0.2, color='green', label='Reward Zone')
+        # Add reward zone even for no disturbance (already in gear angles)
+        ax2.axhspan(-delivery_zone, delivery_zone,
+                   alpha=0.2, color='green', label=f'Reward Zone (±{delivery_zone:.1f}°)')
 
         # Add safe range (in gear angles)
         ax2.axhspan(-max_gear_rotation, max_gear_rotation,
@@ -432,10 +432,8 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
     if disturbance_style == "sin" and disturbance_magnitude is not None and disturbance_period is not None:
         for t in time_values:
             frequency = 1.0 / disturbance_period
-            # Calculate servo disturbance
-            servo_disturbance = np.sin(2 * np.pi * frequency * t) * disturbance_magnitude
-            # Convert to gear disturbance
-            gear_disturbance = servo_disturbance / gear_ratio
+            # Calculate disturbance directly in gear degrees (disturbance_magnitude is already in gear degrees)
+            gear_disturbance = np.sin(2 * np.pi * frequency * t) * disturbance_magnitude
             gear_disturbance_values.append(gear_disturbance)
     else:
         # No disturbance, all zeros
@@ -457,10 +455,9 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
 
     ax3.plot(time_values, final_gear_values, 'k-', label='Final Gear Position')
 
-    # Add reward zone (in gear angles)
-    gear_delivery_zone = delivery_zone / gear_ratio
-    ax3.axhspan(-gear_delivery_zone, gear_delivery_zone,
-               alpha=0.2, color='green', label='Reward Zone')
+    # Add reward zone (already in gear angles)
+    ax3.axhspan(-delivery_zone, delivery_zone,
+               alpha=0.2, color='green', label=f'Reward Zone (±{delivery_zone:.1f}°)')
 
     # Add safe range (in gear angles)
     ax3.axhspan(-max_gear_rotation, max_gear_rotation,
@@ -474,14 +471,20 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
     # Add configuration information as text
     config_text = f"Configuration:\n"
     config_text += f"Servo Center: {servo_center:.1f}°\n"
-    config_text += f"Reward Zone: ±{delivery_zone}°\n"
+
+    # Calculate servo delivery zone from gear delivery zone
+    servo_delivery_zone = delivery_zone * gear_ratio
+
+    config_text += f"Reward Zone: ±{delivery_zone:.1f}° (gear) / ±{servo_delivery_zone:.1f}° (servo)\n"
     config_text += f"Max Gear Rotation: {max_gear_rotation:.1f}°\n"
     config_text += f"Gear Ratio: 1:{gear_ratio}\n"
     config_text += f"Servo Motor Rotation: {max_servo_rotation:.1f}°\n"
     config_text += f"Disturbance: {disturbance_style}\n"
 
     if disturbance_style == "sin":
-        config_text += f"Magnitude: {disturbance_magnitude}°\n"
+        # Show disturbance magnitude in both gear and servo degrees
+        servo_disturbance_magnitude = disturbance_magnitude * gear_ratio
+        config_text += f"Magnitude: {disturbance_magnitude:.1f}° (gear) / {servo_disturbance_magnitude:.1f}° (servo)\n"
         config_text += f"Period: {disturbance_period}s"
 
     fig.text(0.02, 0.02, config_text, fontsize=10,
@@ -494,7 +497,7 @@ def create_configuration_plot(servo_center, delivery_zone, max_gear_rotation, di
 
 # is_raspberry_pi function is defined at the top of the file
 
-def signal_handler(sig, frame):
+def signal_handler(sig, frame):  # pylint: disable=unused-argument
     """
     Handle Ctrl+C by centering the servo before exiting
     """
@@ -526,15 +529,14 @@ def main():
         # Use default values for the plot
         servo_center = 90
         delivery_zone = DELIVERY_ZONE
-        max_rotation = MAX_GEAR_ROTATION  # Using gear rotation as the primary parameter
 
         # Create the configuration plot with default values
         create_configuration_plot(
             servo_center,
             delivery_zone,
-            max_rotation,
+            MAX_GEAR_ROTATION,  # Using gear rotation as the primary parameter
             "sin",  # Default to sine wave disturbance
-            DISTURBANCE_MAGNITUDE,
+            DISTURBANCE_MAGNITUDE,  # This is in servo degrees, will be converted in the function
             DISTURBANCE_PERIOD,
             GEAR_RATIO
         )
