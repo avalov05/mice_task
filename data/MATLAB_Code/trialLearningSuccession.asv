@@ -1,0 +1,134 @@
+%==========Parameters==========
+folder = 'DAT27m60';
+min_press_angle = 2;
+min_press_time = 3;
+max_letgo_time = 10;
+%==============================
+
+%============Setup=============
+files = dir(fullfile('../', folder, '*.csv'));
+file_count = 0;
+press_times_total = {};
+previous_count = 0;
+last_empty = 0;
+trial_ends = {};
+holding_during_trial_percent_ratio = {}; %during(%)/outside(%)
+%==============================
+
+for f = 1:length(files)
+    filepath = fullfile(files(f).folder, files(f).name);
+    disp(filepath);
+    data = readtable(filepath);
+    file_count = file_count + 1;
+
+    time = data{:, 1};
+    lever = data{:, 3};
+    reward = data{:, 5};
+    trial = data{:, 6};
+
+    %extract trials
+    trials = {};
+    last = 0;
+    trial_num = 1;
+
+    %holding times
+    holding_during_trial = 0;
+    holding_outside_trial = 0;
+    total_trial_time = 0;
+    total_outside_time = 0;
+
+    for t = 1:length(trial)
+        if trial(t) ~= last
+            if last == 0
+                start = t;
+            else
+                trials{trial_num} = data(start:t-1, :);
+                trial_num = trial_num + 1;
+                start = t;
+            end
+            last = trial(t);
+        else
+            dt = time(t) - time(t - 1);
+            if last ~= 0
+                if lever >= 2
+                    holding_during_trial = holding_during_trial + dt;
+                end
+                total_trial_time = total_trial_time + dt;
+            else
+                if lever >= 2
+                    holding_outside_trial = holding_outside_trial + dt;
+                end
+                total_outside_time = total_trial_time + dt;
+            end
+        end
+
+    end
+
+    %last trial
+    if trial_num > 1 && start <= height(data) && trial(end) > 0
+        trials{trial_num} = data(start:end, :);
+    end
+    
+    empty = 0;
+    press_times = {}; %how long it takes after trial starts
+    for t = 1:length(trials)
+        trial_data = trials{t};
+        count = 2;
+        start = trial_data{1,1};
+        first_occurance = 0;
+        while first_occurance == 0
+            if trial_data{count, 5} == 1
+                first_occurance = trial_data{count, 1};
+            end
+            if count == height(trial_data)
+                first_occurance = NaN;
+                empty = empty + 1;
+            end
+                
+            count = count + 1;
+        end
+        press_times{t} = first_occurance - start;
+        press_times_total{t+previous_count} = first_occurance - start;
+    end
+    previous_count = previous_count + length(trials);
+    last_empty = last_empty + empty;
+    trial_ends{f} = previous_count - last_empty;
+    
+    %percent calculations
+    percent_holding_during = holding_during_trial / total_trial_time;
+    percent_holding_outside = holding_outside_trial / total_outside_time;
+    holding_during_trial_percent_ratio{f} = percent_holding_during / percent_holding_outside;
+
+end
+
+subplot(4, 1, 1)
+press_times_total_numeric = cell2mat(press_times_total);
+plot(1:length(press_times_total_numeric), press_times_total_numeric);
+
+subplot(4, 1, 2)
+press_times_total_numeric = cell2mat(press_times_total);
+press_times_total_numeric = press_times_total_numeric(~isnan(press_times_total_numeric)); % Remove NaNs
+plot(1:length(press_times_total_numeric), press_times_total_numeric);
+for i = 1:length(trial_ends)
+    xline(trial_ends{i}, 'r', 'LineWidth', 1.5);
+end
+
+subplot(4, 1, 3)
+chunks = {};
+start_idx = 1;
+trial_ends = cell2mat(trial_ends);
+for i = 1:length(trial_ends)
+    stop_idx = trial_ends(i);
+    chunks{i} = press_times_total_numeric(start_idx:stop_idx);
+    start_idx = stop_idx + 1;
+end
+chunk_averages = zeros(1, length(chunks));
+for i = 1:length(chunks)
+    chunk_averages(i) = mean(chunks{i});
+end
+
+plot(1:length(chunk_averages), chunk_averages);
+set(gca, 'YDir', 'reverse')
+
+subplot(4,1,4)
+holding_during_trial_percent_ratio = cholding_during_trial_percent_ratio

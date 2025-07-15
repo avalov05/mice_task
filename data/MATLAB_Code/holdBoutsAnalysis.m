@@ -1,0 +1,232 @@
+%% Hold Attempt and Uninterrupted Hold Detection
+
+%==========Parameters==========
+folder = 'D140m44';
+min_letgo_time = 2; % seconds
+min_hold_time = 2; % seconds
+min_lever_angle_offset = 30; % degrees for movement
+lever_angle_sampling_time = 10; % seconds
+reward_zone_size = 40; % degrees servo overall
+min_hold_length = 5; seconds
+
+%==============================
+
+%============Setup=============
+files = dir(fullfile('../', folder, '*.csv'));
+file_count = 0; % Initialize
+hold_count = 0;
+general_count = 0;
+extracted_data = cell(length(files), 5); % Store per-file data, add columns for stop times
+%==============================
+
+for f = 1:length(files)
+    filepath = fullfile(files(f).folder, files(f).name);
+    disp(filepath);
+    data = readtable(filepath);
+    file_count = file_count + 1;
+    
+    time = data{:,1};
+    lever = data{:,2};
+    reward = data{:,5};
+    
+    
+    % Preallocate arrays
+    hold_durations = zeros(1, 1000); 
+    hold_full_start = zeros(1, 1000); 
+    hold_full_stop  = zeros(1, 1000); 
+    hold_attempt_start = zeros(1, 1000);
+    hold_attempt_stop  = zeros(1, 1000);
+    reward_rates = zeros(1, 1000); 
+    reward_times = zeros(1, 1000);
+    hold_durations_filtered = zeros(1, 1000); 
+    dur_idx = 1; full_idx_b = 1; full_idx_e = 1; att_idx_b = 1; att_idx_e = 1; rew_ind = 1; dur_h_idx = 1; rew_r_ind = 1;
+    
+    in_hold = false;
+    in_attempt = false;
+    current_hold_start = 0;
+    last_reward_time = 0;
+    last_lever_time = 0;
+    reward_count = 0;
+
+    min_lever_angle = min_lever_angle_offset + lever(100);
+    
+    for i = 1:length(reward)
+        % --- in reward zone detection ---
+        if reward(i) == 1
+            reward_count = reward_count + 1; 
+            reward_times(rew_ind) = time(i);
+            rew_ind = rew_ind + 1;
+            last_reward_time = time(i);
+            if ~in_hold
+                in_hold = true;
+                hold_full_start(full_idx_b) = time(i); % Start time
+                full_idx_b = full_idx_b + 1;
+                current_hold_start = time(i);
+            end
+        else
+            if in_hold
+                break_duration = time(i) - last_reward_time;
+                if break_duration >= min_letgo_time
+                    hold_duration = time(i) - current_hold_start;
+                    if hold_duration >= min_hold_time
+                       % hold_durations(dur_idx) = hold_duration;
+                        
+                        hold_full_stop(full_idx_e) = time(i); % End time
+                        full_idx_e = full_idx_e + 1;
+                    end
+                    in_hold = false;
+                end
+            end
+        end
+
+        % --- attempt detection ---
+        if lever(i) >= min_lever_angle
+            last_lever_time = time(i);
+            if ~in_attempt
+                in_attempt = true;
+                hold_attempt_start(att_idx_b) = time(i);
+                att_idx_b = att_idx_b + 1;
+                current_hold_attempt_start = time(i);
+            end
+        else
+            time_since_last_lever_movement = time(i) - last_lever_time;
+            if time_since_last_lever_movement >= lever_angle_sampling_time
+                if in_attempt
+                    hold_attempt_stop(att_idx_e) = time(i);
+                    in_attempt = false;
+                    att_idx_e = att_idx_e + 1;
+                    hold_duration = time(i) - current_hold_attempt_start - lever_angle_sampling_time;
+                    hold_durations(dur_idx) = hold_duration;
+                    dur_idx = dur_idx + 1;
+                    if hold_duration > min_hold_length
+                        hold_durations_filtered(dur_h_idx) = hold_duration;
+                        dur_h_idx = dur_h_idx + 1;
+                    end
+                    reward_rate = reward_count / hold_duration;
+                    reward_count = 0;
+                    reward_rates(rew_r_ind) = reward_rate;
+                    rew_r_ind = rew_r_ind + 1;
+                end
+            end
+        end
+
+        if in_hold
+            hold_count = hold_count + 1;
+        end
+        general_count = general_count + 1;
+    end
+    
+    % trim preallocated arrays
+    hold_durations = hold_durations(1:dur_idx-1);
+    hold_full_start = hold_full_start(1:full_idx_b-1);
+    hold_full_stop  = hold_full_stop(1:full_idx_e-1);
+    hold_attempt_start = hold_attempt_start(1:att_idx_b-1);
+    hold_attempt_stop  = hold_attempt_stop(1:att_idx_e-1);
+    reward_rates  = reward_rates(1:rew_r_ind-1);
+    reward_times  = reward_times(1:rew_ind-1);
+    hold_durations_filtered = hold_durations(1:dur_h_idx-1);
+
+    % check in case lever held at end
+    if in_hold
+        final_hold = time(end) - current_hold_start;
+        if final_hold >= min_hold_time
+            hold_durations(end+1) = final_hold;
+            hold_full_stop(end+1) = time(end);
+            if final_hold > min_hold_length
+                hold_durations_filtered(end+1) = final_hold;
+            end
+        end
+    end
+    if in_attempt
+        hold_attempt_stop(end+1) = time(end);
+    end
+    
+    % Store extracted data (fix variable names)
+    extracted_data{f, 1} = hold_durations;
+    extracted_data{f, 2} = hold_attempt_start;
+    extracted_data{f, 3} = hold_attempt_stop;
+    extracted_data{f, 4} = hold_full_start;
+    extracted_data{f, 5} = hold_full_stop;
+    extracted_data{f, 6} = time;
+    extracted_data{f, 7} = lever;
+    extracted_data{f, 8} = reward_times;
+    extracted_data{f, 9} = hold_durations_filtered;
+    extracted_data{f, 10} = reward_rates;
+    
+    % Plot
+    figure
+    plot(time, lever); hold on;
+    for i = 1:length(hold_attempt_start)
+        xline(hold_attempt_start(i), 'g', 'LineWidth', 1.5);
+    end
+    for i = 1:length(hold_attempt_stop)
+        xline(hold_attempt_stop(i), 'r', 'LineWidth', 1.5);
+    end
+    %for i = 1:length(hold_full_start)
+    %    xline(hold_full_start(i), 'b--', 'LineWidth', 1.5);
+    %end
+    %for i = 1:length(hold_full_stop)
+    %    xline(hold_full_stop(i), 'k--', 'LineWidth', 1.5);
+    %end
+end
+
+
+
+figure
+subplot(3,1,1)
+plot(1:length(files),cellfun(@mean, extracted_data(:,9)));
+xlabel('Session #')
+ylabel('Mean Hold Time, Seconds')
+title('Mean Hold Time Per Session')
+subplot(3,1,2)
+plot(1:length(files),cellfun(@mean, extracted_data(:,10)));
+xlabel('Session #')
+ylabel('Mean Reward Rate, Rewards/Second')
+title('Mean Reward Rate Per Session')
+subplot(3,1,3)
+reward_zeros = zeros(file_count); 
+for i = 1:file_count
+    reward_zeros(i) = sum(extracted_data{i, 10} == 0);
+end
+plot(1:length(files),reward_zeros);
+xlabel('Session #')
+ylabel('Bouts Without Reward Number')
+title('Bouts Without Reward per Session')
+
+%% Graph Individual Bouts
+
+file_number = 8;
+
+hold_attempt_start = extracted_data{file_number, 2};
+hold_attempt_stop = extracted_data{file_number, 3};
+time = extracted_data{file_number, 6};
+lever = extracted_data{file_number, 7};
+reward_times = extracted_data{file_number, 8};
+reward_rates = extracted_data{file_number, 10};
+
+
+
+for i = 1:length(hold_attempt_start)
+    start_ind = find(time == hold_attempt_start(i));
+    stop_ind = find(time == hold_attempt_stop(i));
+    bout_time = time(start_ind:stop_ind);
+    bout_lever = lever(start_ind:stop_ind);
+    reward_times_cut = reward_times(reward_times >= hold_attempt_start(i) & reward_times <= hold_attempt_stop(i));
+    figure(1);
+    clf;
+    plot(bout_time, bout_lever, 'r');
+    x_pos = bout_time(1);                       
+    y_pos = min(bout_lever) - 5;             
+
+    text(x_pos, y_pos, num2str(reward_rates(i)), 'FontSize', 14, 'Color', 'k', 'FontWeight', 'bold');
+    set(gca, 'YDir', 'reverse')
+    hold on
+    dot_indices = arrayfun(@(t)find(time==t,1), reward_times_cut);
+    scatter(time(dot_indices), lever(dot_indices), 60, 'r', 'filled');
+    xl = xlim;
+    patch([xl(1) xl(2) xl(2) xl(1)], [(90 - reward_zone_size/2) (90 - reward_zone_size/2) (90 + reward_zone_size/2) (90 + reward_zone_size/2)], ...
+          [0.5 0.7 0.9], 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+    hold off
+    waitforbuttonpress;
+end
+

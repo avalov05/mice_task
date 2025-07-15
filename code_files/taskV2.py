@@ -204,33 +204,22 @@ def read_voltage(ads):
     voltage = raw_to_voltage(raw)
     return voltage
 
-def collectData(data, g_data, mae4, colt, start_time, count, disturbance, reward):
+def collectData(data, mae4, colt, start_time, disturbance, reward):
     data["time"].append(time.time() - start_time)
-    data["mae4"].append(read_voltage(mae4))
-    data["colt"].append(read_voltage(colt))
+    data["mae4"].append(mae4)
+    data["colt"].append(colt)
     data["disturbance_angle"].append(disturbance)
     data["reward_delivered"].append(reward)
 
-    #for analog graphs
-    if count == 1 :
-        count = 1
-        g_data["mae4"].append(read_voltage(mae4))
-        g_data["colt"].append(read_voltage(colt))
-        if len(g_data["mae4"]) >= 455:
-            g_data["mae4"] = []
-            g_data["colt"] = []
-    else:
-        count += 1
-    
-    return count
 
 def line(x, slope, intercept):
     return slope * x + intercept
 
 def calibrateColt(surface, screen, font, colt, kit, num_values):
-    clearScreen(screen, surface)
-    display_debug_text(surface, font, "calibration in progress...")
-    updateBlankScreen(screen, surface)
+    # clearScreen(screen, surface)
+    # display_debug_text(surface, font, "calibration in progress...")
+    # updateBlankScreen(screen, surface)
+    print("Colt calibration in progress...")
     starting = MIN_SERVO_ANGLE
     incriment = (MAX_SERVO_ANGLE - MIN_SERVO_ANGLE) / num_values
     x = []
@@ -238,6 +227,7 @@ def calibrateColt(surface, screen, font, colt, kit, num_values):
     value = starting
     kit.servo[0].angle = value
     x.append(value)
+    read_voltage(colt)
     time.sleep(2)
     CALIBRATION_VALUES["colt"].append(read_voltage(colt))
     y.append(CALIBRATION_VALUES["colt"][0])
@@ -245,7 +235,7 @@ def calibrateColt(surface, screen, font, colt, kit, num_values):
         value = starting + incriment * i
         kit.servo[0].angle = value
         x.append(value)
-        time.sleep(0.2)
+        time.sleep(0.1)
         CALIBRATION_VALUES["colt"].append(read_voltage(colt))
         y.append(CALIBRATION_VALUES["colt"][i])
     coeffs = np.polyfit(x, y, 1)
@@ -258,39 +248,38 @@ def calibrateColt(surface, screen, font, colt, kit, num_values):
     plt.plot(x_line, y_line, "-", color="red", label="Best Fit Line")
     ax.set_title("Colt Sensor Calibration")
     fig.tight_layout()
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png')
-    plt.close(fig)
-    buf.seek(0)
-    image = Image.open(buf)
-    plot_surface = pygame.image.fromstring(image.tobytes(), image.size, image.mode).convert()
-    clearScreen(screen, surface)
-    surface.blit(plot_surface, (0, 0))
-    display_debug_text(surface, font, "touch anywhere to continue")
-    updateBlankScreen(screen, surface)
-    waiting = True
-    while waiting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.FINGERDOWN:
-                waiting = False
+    # buf = io.BytesIO()
+    # fig.savefig(buf, format='png')
+    # plt.close(fig)
+    # buf.seek(0)
+    # image = Image.open(buf)
+    # plot_surface = pygame.image.fromstring(image.tobytes(), image.size, image.mode).convert()
+    # clearScreen(screen, surface)
+    # surface.blit(plot_surface, (0, 0))
+    # display_debug_text(surface, font, "touch anywhere to continue")
+    # updateBlankScreen(screen, surface)
+    # waiting = True
+    # while waiting:
+    #     for event in pygame.event.get():
+    #         if event.type == pygame.QUIT:
+    #             pygame.quit()
+    #             sys.exit()
+    #         elif event.type == pygame.FINGERDOWN:
+    #             waiting = False
+    plt.show()
+    print("Calibration complete. Press Enter to continue...")
+    input()
     return f
 
-def updateServoPos(kit, center_angle_calib, desired_position, disturbance = 0):
-    needed_angle = desired_position + disturbance + (center_angle_calib - 90)
+def updateServoPos(kit, desired_position, disturbance = 0):
+    needed_angle = desired_position + disturbance + (ADJUSTED_CENTER - 90)
     if needed_angle < MIN_SERVO_ANGLE:
         kit.servo[0].angle = MIN_SERVO_ANGLE
     elif needed_angle > MAX_SERVO_ANGLE:
         kit.servo[0].angle = MAX_SERVO_ANGLE
     else: kit.servo[0].angle = needed_angle
 
-def calibrateMae4(mae4, screen, surface, font):
-    clearScreen(screen, surface)
-    display_debug_text(surface, font, "put lever in resting position")
-    updateBlankScreen(screen, surface)
-    time.sleep(2)
+def calibrateMae4(mae4):
     CALIBRATION_VALUES["mae4"].append(read_voltage(mae4))
 
 def getMae4Angle(mae4):
@@ -300,61 +289,77 @@ def calibrate_center(kit, screen, surface, font):
     global MIN_SERVO_ANGLE, MAX_SERVO_ANGLE, ADJUSTED_CENTER
     
     kit.servo[0].angle = 90
-    clearScreen(screen, surface)
-    centering = True
-    center_angle = 90
+    # clearScreen(screen, surface)
+    # centering = True
+    # center_angle = 90
 
-    minus_button_rect = pygame.Rect(0, 700, 240, 100) 
-    plus_button_rect = pygame.Rect(240, 700, 240, 100)
-    done_button_rect = pygame.Rect(0, 0, 480, 200)
+    # minus_button_rect = pygame.Rect(0, 700, 240, 100) 
+    # plus_button_rect = pygame.Rect(240, 700, 240, 100)
+    # done_button_rect = pygame.Rect(0, 0, 480, 200)
 
-    while centering:
-        surface.fill((0,0,0))
-        display_debug_text(surface, font, f"Center the servo - Current: {center_angle}°")
+    print("Center calibration - use + and - to adjust, 'done' to finish")
     
-        pygame.draw.rect(surface, (200, 0, 0), minus_button_rect)
-        text = font.render("-1", True, (255, 255, 255))
-        text_rect = text.get_rect(center=minus_button_rect.center)
-        surface.blit(text, text_rect)
+    while True:
+        # surface.fill((0,0,0))
+        # display_debug_text(surface, font, f"Center the servo - Current: {center_angle}°")
+        print(f"Current center: {ADJUSTED_CENTER}°")
+    
+        # pygame.draw.rect(surface, (200, 0, 0), minus_button_rect)
+        # text = font.render("-1", True, (255, 255, 255))
+        # text_rect = text.get_rect(center=minus_button_rect.center)
+        # surface.blit(text, text_rect)
         
-        pygame.draw.rect(surface, (0, 200, 0), plus_button_rect)
-        text = font.render("+1", True, (255, 255, 255))
-        text_rect = text.get_rect(center=plus_button_rect.center)
-        surface.blit(text, text_rect)
+        # pygame.draw.rect(surface, (0, 200, 0), plus_button_rect)
+        # text = font.render("+1", True, (255, 255, 255))
+        # text_rect = text.get_rect(center=plus_button_rect.center)
+        # surface.blit(text, text_rect)
 
-        pygame.draw.rect(surface, (0, 0, 200), done_button_rect)
-        text = font.render("Done", True, (255, 255, 255))
-        text_rect = text.get_rect(center=done_button_rect.center)
-        surface.blit(text, text_rect)
+        # pygame.draw.rect(surface, (0, 0, 200), done_button_rect)
+        # text = font.render("Done", True, (255, 255, 255))
+        # text_rect = text.get_rect(center=done_button_rect.center)
+        # surface.blit(text, text_rect)
         
-        updateBlankScreen(screen, surface)
+        # updateBlankScreen(screen, surface)
         
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.FINGERDOWN:
-                touch_x = event.y * 480 
-                touch_y = event.x * 800
+        # for event in pygame.event.get():
+        #     if event.type == pygame.QUIT:
+        #         pygame.quit()
+        #         sys.exit()
+        #     elif event.type == pygame.FINGERDOWN:
+        #         touch_x = event.y * 480 
+        #         touch_y = event.x * 800
                 
-                if minus_button_rect.collidepoint(touch_x, touch_y):
-                    center_angle = center_angle - 1
-                    ADJUSTED_CENTER -= 1
-                    MIN_SERVO_ANGLE -= 1
-                    MAX_SERVO_ANGLE -= 1
-                    kit.servo[0].angle = center_angle
-                elif plus_button_rect.collidepoint(touch_x, touch_y):
-                    center_angle = center_angle + 1
-                    ADJUSTED_CENTER += 1
-                    MIN_SERVO_ANGLE += 1
-                    MAX_SERVO_ANGLE += 1
-                    kit.servo[0].angle = center_angle
-                elif done_button_rect.collidepoint(touch_x, touch_y):
-                    centering = False
+        #         if minus_button_rect.collidepoint(touch_x, touch_y):
+        #             center_angle = center_angle - 1
+        #             ADJUSTED_CENTER -= 1
+        #             MIN_SERVO_ANGLE -= 1
+        #             MAX_SERVO_ANGLE -= 1
+        #             kit.servo[0].angle = center_angle
+        #         elif plus_button_rect.collidepoint(touch_x, touch_y):
+        #             center_angle = center_angle + 1
+        #             ADJUSTED_CENTER += 1
+        #             MIN_SERVO_ANGLE += 1
+        #             MAX_SERVO_ANGLE += 1
+        #             kit.servo[0].angle = center_angle
+        #         elif done_button_rect.collidepoint(touch_x, touch_y):
+        #             centering = False
 
-        time.sleep(0.01)
-
-    return center_angle
+        # time.sleep(0.01)
+        
+        command = input("Enter +, -, or done: ").strip().lower()
+        
+        if command == "+":
+            ADJUSTED_CENTER += 1
+            MIN_SERVO_ANGLE += 1
+            MAX_SERVO_ANGLE += 1
+            kit.servo[0].angle = ADJUSTED_CENTER
+        elif command == "-":
+            ADJUSTED_CENTER -= 1
+            MIN_SERVO_ANGLE -= 1
+            MAX_SERVO_ANGLE -= 1
+            kit.servo[0].angle = ADJUSTED_CENTER
+        elif command == "done":
+            break
 
 #shows the graphs that show the task parameters
 def taskInit(screen, surface, font):
@@ -377,8 +382,8 @@ def taskInit(screen, surface, font):
     ax1.set_ylim(min_servo_angle_adjusted, max_servo_angle_adjusted )
     
     #reward zone
-    reward_zone_min = (ADJUSTED_CENTER - REWARD_ZONE_SIZE / 2 - ADJUSTED_CENTER) * GEAR_RATIO
-    reward_zone_max = (ADJUSTED_CENTER + REWARD_ZONE_SIZE / 2 - ADJUSTED_CENTER) * GEAR_RATIO
+    reward_zone_min = (ADJUSTED_CENTER - REWARD_ZONE_SIZE / 2 - 90) * GEAR_RATIO
+    reward_zone_max = (ADJUSTED_CENTER + REWARD_ZONE_SIZE / 2 - 90) * GEAR_RATIO
     ax1.axhspan(reward_zone_min, reward_zone_max, alpha=0.3, color='green', label='Reward Zone')
     ax1.legend()
     ax2.axhspan(reward_zone_min, reward_zone_max, alpha=0.3, color='green', label='Reward Zone')
@@ -395,36 +400,39 @@ def taskInit(screen, surface, font):
     y = (get_disturbance(x)) * GEAR_RATIO
     ax2.plot(x, y, 'r-', linewidth=1)
     
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
-    plt.close(fig)
-    buf.seek(0)
-    image = Image.open(buf)
-    plot_surface = pygame.image.fromstring(image.tobytes(), image.size, image.mode).convert()
+    # buf = io.BytesIO()
+    # fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+    # plt.close(fig)
+    # buf.seek(0)
+    # image = Image.open(buf)
+    # plot_surface = pygame.image.fromstring(image.tobytes(), image.size, image.mode).convert()
     
-    clearScreen(screen, surface)
-    surface.blit(plot_surface, (0, 0))
-    display_debug_text(surface, font, "touch anywhere to continue")
-    updateBlankScreen(screen, surface)
+    # clearScreen(screen, surface)
+    # surface.blit(plot_surface, (0, 0))
+    # display_debug_text(surface, font, "touch anywhere to continue")
+    # updateBlankScreen(screen, surface)
 
-    waiting = True
-    while waiting:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            elif event.type == pygame.FINGERDOWN:
-                waiting = False
+    # waiting = True
+    # while waiting:
+    #     for event in pygame.event.get():
+    #         if event.type == pygame.QUIT:
+    #             pygame.quit()
+    #             sys.exit()
+    #         elif event.type == pygame.FINGERDOWN:
+    #             waiting = False
+    plt.show()
+    print("Task parameters displayed. Press Enter to continue...")
+    input()
 
 def FBF(lever_angle):
     global LEVER_SENSITIVITY
     x_1 = (MAX_LEVER_ANGLE - MIN_LEVER_ANGLE) / 2 + MIN_LEVER_ANGLE
-    y_1 = 90
+    y_1 = ADJUSTED_CENTER
     x_2 = MIN_LEVER_ANGLE
     y_2 = MIN_SERVO_ANGLE
     m = (y_1 - y_2)/(x_1 - x_2)
     b = y_1 - m * x_1
-    m_adjusted = m * LEVER_SENSITIVITY
+    m_adjusted = m * LEVER_SENSITIVITY 
     b = y_1 - m_adjusted * x_1
     return m_adjusted * lever_angle + b
 
@@ -436,9 +444,10 @@ def get_disturbance(time):
     
 def check_reward(colt, colt_fun):
     m, b = colt_fun.coeffs
-    x = (read_voltage(colt) - b) / m
+    x = (colt - b) / m
     if REWARD_ZONE_TYPE == "zone":
         if x > ADJUSTED_CENTER - REWARD_ZONE_SIZE / 2 and x < ADJUSTED_CENTER + REWARD_ZONE_SIZE / 2:
+            print(x, ADJUSTED_CENTER - REWARD_ZONE_SIZE / 2, ADJUSTED_CENTER + REWARD_ZONE_SIZE / 2)
             return True
         else: 
             return False
@@ -449,11 +458,12 @@ def check_reward(colt, colt_fun):
             return False
     
     
-def dispense_reward(led, duration=0.007):
+def dispense_reward(led, duration=0.010):
     
     led.on()
     time.sleep(duration)
     led.off()
+    print("Reward given at ", time.time())
 
 def save_data_to_file(data, data_filename):
     with open(data_filename, 'w', newline='') as data_file:
@@ -532,18 +542,26 @@ def main():
 
     t = 0
 
-    center_calibration_angle = calibrate_center(kit, screen, virtual_surface, font)
-    colt_fun = calibrateColt(virtual_surface, screen, font, colt, kit, 20)
+    calibrate_center(kit, screen, virtual_surface, font)
+    colt_fun = calibrateColt(virtual_surface, screen, font, colt, kit, 40)
     taskInit(screen, virtual_surface, font)
-    calibrateMae4(mae4, screen, virtual_surface, font)
-    pygame.quit()
+    # clearScreen(screen, virtual_surface)
+    # display_debug_text(virtual_surface, font, "put lever in and press enter")
+    # updateBlankScreen(screen, virtual_surface)
+    # time.sleep(2)
+    # pygame.quit()
+
+    # calib = input()
+    print("Put lever in resting position and press Enter...")
+    input()
+    calibrateMae4(mae4)
 
     start_time = time.time()
     
-    
+    iteration_timer = 0
+    reward_timer = 0
     
     while True:
-        #virtual_surface.fill((0,0,0)) commented for optimization
 
 
         #complete lever to spout conversion
@@ -551,11 +569,12 @@ def main():
         FBF_angle = FBF(lever_angle)
         elapsed_time = time.time() - start_time
         disturbance_angle = get_disturbance(elapsed_time)
-        updateServoPos(kit, center_calibration_angle, FBF_angle, disturbance_angle)
+        updateServoPos(kit, FBF_angle, disturbance_angle)
         
         #check if reward should be given
         current_time = time.time() - start_time
-        if check_reward(colt, colt_fun):
+        colt_v = read_voltage(colt)
+        if check_reward(colt_v, colt_fun):
             if not in_reward_zone:
                 hold_start = current_time
                 in_reward_zone = True
@@ -566,6 +585,7 @@ def main():
                     last_reward = current_time
                     hold_start = current_time
                     reward_delivered = 1
+
                 else:
                     reward_delivered = 0
             else:
@@ -576,42 +596,7 @@ def main():
 
 
         m, b = colt_fun.coeffs
-        servo_angle = (read_voltage(colt) - b) / m
-        count = collectData(data, g_data, lever_angle, servo_angle, start_time, count,disturbance_angle, reward_delivered)
-        #updateScreen(screen, virtual_surface, font, g_data, stop_button_rect, colt)  commented for optimization
-
-        #display_debug_text_full(screen, virtual_surface, font, getMae4Angle(mae4))
-
-        
-
-        # data_writer.writerow([
-        #     current_time,
-        #     f"{servo_angle:.1f}",
-        #     f"{lever_angle:.1f}",
-        #     f"{disturbance_angle:.1f}",   commented for optimization
-        #     reward_delivered
-        #     ])
-        # data_file.flush()
-        
-
-    
-        # for event in pygame.event.get():
-        #     if event.type == pygame.QUIT:
-        #         pygame.quit()
-        #         sys.exit()
-
-        #     elif event.type == pygame.FINGERDOWN:
-        #         touch_x = event.y * 480 #rotation
-        #         touch_y = event.x * 800 
-        #         if stop_button_rect.collidepoint(touch_x, touch_y):
-        #             pygame.quit()
-        #             sys.exit()
-            
-        #     elif event.type == pygame.MOUSEBUTTONDOWN:
-        #         if stop_button_rect.collidepoint(event.pos):
-        #             pygame.quit()
-        #             sys.exit()
-
-        # time.sleep(0.01)
+        servo_angle = (colt_v - b) / m
+        collectData(data, lever_angle, servo_angle, start_time, disturbance_angle, reward_delivered)
 
 main()

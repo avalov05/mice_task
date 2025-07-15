@@ -2,5 +2,6 @@ pigpio==1.78
 adafruit-blinka==8.40.0
 adafruit-circuitpython-ads1x15==2.2.9
 adafruit-circuitpython-mcp4725==1.4.17
+adafruit-circuitpython-servokit==1.4.0
 numpy>=1.26.0
 matplotlib>=3.8.0 
